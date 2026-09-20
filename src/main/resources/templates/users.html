@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>FlowOps - Users (AJAX)</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, sans-serif; background: #f4f6f8; padding: 2rem; }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { margin-bottom: 1.5rem; color: #2c3e50; }
+        .card { background: #fff; border-radius: 8px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); margin-bottom: 1.5rem; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: .6rem .8rem; border-bottom: 1px solid #e5e9ee; }
+        th { background: #fafbfc; color: #555; }
+        input[type="text"] { padding: .5rem .7rem; border: 1px solid #ccc; border-radius: 6px; margin-right: .5rem; }
+        button { padding: .5rem 1rem; border: none; border-radius: 6px; cursor: pointer; background: #2980b9; color: #fff; }
+        button.danger { background: #c0392b; }
+        button.secondary { background: #7f8c8d; }
+        button:disabled { background: #b0c4d4; cursor: not-allowed; }
+        .empty { color: #888; padding: 1rem 0; }
+        .msg { margin: .5rem 0; padding: .5rem .8rem; border-radius: 6px; display: none; }
+        .msg.ok { display: block; background: #d4efdf; color: #1e8449; }
+        .msg.err { display: block; background: #fadbd8; color: #943126; }
+        .row-form { display: flex; gap: .5rem; flex-wrap: wrap; }
+        .pagination { display: flex; gap: .5rem; align-items: center; justify-content: center; margin-top: 1rem; }
+        .pagination span { color: #555; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>FlowOps – Danh sách người dùng</h1>
+
+    <div class="card">
+        <form id="searchForm" class="row-form">
+            <input type="text" id="searchInput" placeholder="Tìm theo tên...">
+            <button type="submit">Tìm kiếm</button>
+            <button type="button" class="secondary" onclick="resetSearch()">Làm mới</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2 style="margin-bottom:1rem;">Thêm người dùng</h2>
+        <form id="addForm" class="row-form">
+            <input type="text" id="fName" placeholder="Name" required>
+            <input type="text" id="fUsername" placeholder="Username" required>
+            <input type="text" id="fEmail" placeholder="Email" required>
+            <button type="submit">Thêm</button>
+        </form>
+    </div>
+
+    <div id="msg" class="msg"></div>
+
+    <div class="card">
+        <table>
+            <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Username</th>
+                <th>Email</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody id="userTableBody"></tbody>
+        </table>
+        <div class="pagination">
+            <button type="button" id="prevBtn" onclick="changePage(-1)">‹ Trước</button>
+            <span id="pageInfo"></span>
+            <button type="button" id="nextBtn" onclick="changePage(1)">Sau ›</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API = '/api/v1/users';
+    let page = 0, size = 5, keyword = '';
+
+    function showMsg(text, ok) {
+        const el = document.getElementById('msg');
+        el.textContent = text;
+        el.className = 'msg ' + (ok ? 'ok' : 'err');
+        setTimeout(() => el.className = 'msg', 3000);
+    }
+
+    function esc(s) {
+        return (s ?? '').toString().replace(/[&<>"']/g, c =>
+            ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    async function loadUsers() {
+        try {
+            const res = await fetch(API + '/page?page=' + page + '&size=' + size
+                + (keyword ? '&keyword=' + encodeURIComponent(keyword) : ''));
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            render(await res.json());
+        } catch (e) {
+            showMsg('Lỗi tải danh sách: ' + e.message, false);
+        }
+    }
+
+    function render(pg) {
+        const tbody = document.getElementById('userTableBody');
+        if (!pg.content || pg.content.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="empty">Không có dữ liệu</td></tr>';
+        } else {
+            tbody.innerHTML = pg.content.map(u => `
+                <tr>
+                    <td>${u.id ?? ''}</td>
+                    <td>${esc(u.name)}</td>
+                    <td>${esc(u.username)}</td>
+                    <td>${esc(u.email)}</td>
+                    <td><button class="danger" onclick="deleteUser(${u.id})">Xóa</button></td>
+                </tr>
+            `).join('');
+        }
+        document.getElementById('pageInfo').textContent =
+            `Trang ${pg.number + 1} / ${Math.max(pg.totalPages, 1)} (${pg.totalElements} users)`;
+        document.getElementById('prevBtn').disabled = pg.first;
+        document.getElementById('nextBtn').disabled = pg.last;
+    }
+
+    function changePage(delta) {
+        page = Math.max(0, page + delta);
+        loadUsers();
+    }
+
+    function resetSearch() {
+        keyword = '';
+        document.getElementById('searchInput').value = '';
+        page = 0;
+        loadUsers();
+    }
+
+    async function addUser(e) {
+        e.preventDefault();
+        const user = {
+            name: document.getElementById('fName').value,
+            username: document.getElementById('fUsername').value,
+            email: document.getElementById('fEmail').value
+        };
+        try {
+            const res = await fetch(API, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(user)
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            showMsg('Đã thêm (id=' + (await res.json()).id + ')', true);
+            document.getElementById('addForm').reset();
+            keyword = '';
+            page = 0;
+            loadUsers();
+        } catch (err) {
+            showMsg('Lỗi thêm: ' + err.message, false);
+        }
+    }
+
+    async function deleteUser(id) {
+        if (!confirm('Xóa user id=' + id + '?')) return;
+        try {
+            const res = await fetch(API + '/' + id, {method: 'DELETE'});
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            showMsg('Đã xóa id=' + id, true);
+            loadUsers();
+        } catch (err) {
+            showMsg('Lỗi xóa: ' + err.message, false);
+        }
+    }
+
+    document.getElementById('searchForm').addEventListener('submit', e => {
+        e.preventDefault();
+        keyword = document.getElementById('searchInput').value;
+        page = 0;
+        loadUsers();
+    });
+    document.getElementById('addForm').addEventListener('submit', addUser);
+
+    loadUsers();
+</script>
+</body>
+</html>
